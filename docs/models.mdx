@@ -1,0 +1,145 @@
+---
+title: Models
+---
+
+# Models Documentation
+
+This module provides several types of models for workflow automation, command generation, and message composition.
+All models are based on Pydantic and implement specific interfaces to ensure consistency and extensibility.
+
+## Model Interfaces
+
+### CommandModel
+Defines the interface for models that generate shell commands. You must implement the `get_command()` method.
+```python
+from models.models import CommandModel
+
+class MyCommand(CommandModel):
+    ... # your fields here
+    def get_command(self) -> str:
+        return "echo 'Hello from command model!'"
+```
+
+### MessageModel
+Defines the interface for models that generate Slack messages. You must implement the `get_message()` method.
+```python
+from models.models import MessageModel, Message
+
+class MyMessage(MessageModel):
+    ... # your fields here
+    def get_message(self, **kwargs) -> Message:
+        from models.messages import ValidationFailureMessage
+
+        return ValidationFailureMessage(
+            incident_title="Database Down",
+            incident_id="INC123",
+            incident_severity="High",
+            channel="alerts"
+        ).to_message()
+```
+
+### PromptModel
+Defines the interface for models that generate prompts for AI agents. You must implement the `get_prompt()` method.
+```python
+from models.models import PromptModel
+
+class MyPrompt(PromptModel):
+    ... # your fields here
+    def get_prompt(self) -> None:
+        # generate and set prompt fields
+        pass
+```
+
+### FiletModel
+Defines the interface for models that generate file lists. You must implement the `get_files()` method.
+This is intended for using with steps which have files.
+```python
+from models.models import FileModel
+
+class MyFile(FileModel):
+    ... # your fields here
+    def get_files(self) -> None:
+        # generate and set files with their paths
+        pass
+```
+
+## Example Models
+
+### ValidateIncident
+Validates incident parameters and generates a shell script for validation.
+```python
+from models.models import ValidateIncident
+
+model = ValidateIncident(
+    incident_id="INC123",
+    incident_title="Database Down",
+    incident_severity="High",
+    affected_services="db-service",
+    incident_priority="P1",
+    incident_owner="ops-team",
+    incident_source="monitoring",
+    customer_impact="Major outage"
+)
+print(model.get_command())
+```
+
+### CopilotContextData
+Generates context prompts for AI agents based on incident data.
+```python
+from models.models import CopilotContextData
+
+context = CopilotContextData(
+    incident_id="INC123",
+    incident_title="Database Down",
+    incident_severity="High",
+    affected_services="db-service",
+    datadog_metrics_config="system.cpu.usage",
+    observe_supported_ds_ids="api-logs,error-logs"
+)
+context.get_prompt()
+print(context.copilot_prompt)
+```
+
+### Advanced examples
+### Combined Command and Message Models
+Some models can be mixed and implement multiple models. For instance `CommandModel` and `MessageModel` interfaces.
+This allows them to generate both shell commands which also send Slack messages.
+
+```python
+from models.models import CommandModel, MessageModel, Message
+
+class MyCombinedModel(CommandModel, MessageModel):
+    ... # your fields here
+    def get_command(self) -> str:
+        # Build a message
+        msg = self.get_message()
+        # Convert message to JSON
+        msg_json = msg.to_json()
+
+        return f"""
+                echo "🔍 DEBUG: handle-validation-failure step starting"
+
+                cat > /tmp/validation_failure_message.json << 'EOF'
+                    {msg_json}
+                EOF
+
+                curl -s -X POST https://slack.com/api/chat.postMessage\\
+                  -H "Content-type: application/json" \\
+                  -H "Authorization: Bearer $SLACK_TOKEN" \\
+                  -d @/tmp/validation_failure_message.json
+
+                echo "✅ Service validation agent notification sent to Slack"
+            """
+
+    def get_message(self) -> Message:
+        from models.messages import ValidationFailureMessage
+        return ValidationFailureMessage(
+            incident_title="Database Down",
+            incident_id="INC123",
+            incident_severity="High",
+            channel="alerts"
+        ).to_message()
+```
+
+---
+For more details, see the [Messages](./messages.mdx) and [Message Blocks](./message-blocks.mdx) documentation.

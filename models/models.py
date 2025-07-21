@@ -17,7 +17,7 @@ class MessageModel(BaseModel, abc.ABC):
     """Base model for command generation."""
 
     @abc.abstractmethod
-    def get_message(self) -> Message:
+    def get_message(self, **kwargs) -> Message:
         """Generate the command string."""
         pass
 
@@ -29,7 +29,7 @@ class PromptModel(BaseModel, abc.ABC):
         """Generate the prompts."""
         pass
 
-class FiletModel(BaseModel, abc.ABC):
+class FileModel(BaseModel, abc.ABC):
     """Base model for prompt generation."""
 
     @abc.abstractmethod
@@ -353,7 +353,7 @@ class PostIncidentAlert(CommandModel, MessageModel):
         )
 
         copilot_prompt = self.copilot_prompt or copilot_prompt_fallback
-        message_json = self.get_message(copilot_prompt).to_json()
+        message_json = self.get_message(copilot_prompt=copilot_prompt).to_json()
 
         return f'''
             echo "🔍 DEBUG: post-incident-alert step starting";
@@ -391,7 +391,7 @@ class PostIncidentAlert(CommandModel, MessageModel):
             echo "✅ Beautiful incident alert posted to Slack"
         '''
 
-    def get_message(self, copilot_prompt: str) -> Message:
+    def get_message(self, **kwargs) -> Message:
         from models.messages import PostIncidentAlertMessage
 
         return PostIncidentAlertMessage(
@@ -404,7 +404,7 @@ class PostIncidentAlert(CommandModel, MessageModel):
             incident_url=self.incident_url,
             agent_uuid=self.agent_uuid,
             channel=self.channel,
-            copilot_prompt=copilot_prompt
+            **kwargs
         ).to_message()
 
 
@@ -887,7 +887,7 @@ class FormatSlackReportsData(PromptModel):
         return self
 
 
-class InvestigationResults(CommandModel, FiletModel):
+class InvestigationResults(CommandModel, FileModel):
     input_file: str
     output_file: str
 

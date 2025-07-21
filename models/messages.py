@@ -1,3 +1,6 @@
+import abc
+from abc import abstractmethod
+
 from pydantic import BaseModel
 
 from message_blocks.blocks import (
@@ -13,7 +16,14 @@ from message_blocks.blocks import (
     ButtonStyle,
 )
 
-class ValidationFailureMessage(BaseModel):
+class MessageModel(BaseModel, abc.ABC):
+
+    @abstractmethod
+    def to_message(self) -> Message:
+        """Convert to SlackMessage."""
+        raise NotImplementedError("Subclasses must implement this method.")
+
+class ValidationFailureMessage(MessageModel):
     """Message for validation failure notifications when affected services are missing."""
     incident_title: str
     incident_id: str
@@ -51,7 +61,7 @@ class ValidationFailureMessage(BaseModel):
         )
 
 
-class PostIncidentAlertMessage(BaseModel):
+class PostIncidentAlertMessage(MessageModel):
     incident_title: str
     incident_id: str
     incident_severity: str
@@ -111,7 +121,7 @@ class PostIncidentAlertMessage(BaseModel):
         )
 
 
-class InvestigationStartMessage(BaseModel):
+class InvestigationStartMessage(MessageModel):
     """Message for investigation start notification."""
     channel: str
     investigation_agent: str
