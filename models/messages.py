@@ -9,11 +9,10 @@ from message_blocks.blocks import (
     SectionBlock,
     MarkdownTextObject,
     PlainTextObject,
-    Attachment,
     DividerBlock,
     ActionsBlock,
     ButtonElement,
-    ButtonStyle,
+    ButtonStyle, ContextBlock, BlockType,
 )
 
 class MessageModel(BaseModel, abc.ABC):
@@ -65,91 +64,136 @@ class PostIncidentAlertMessage(MessageModel):
     incident_title: str
     incident_id: str
     incident_severity: str
+    severity_emoji: str
     incident_priority: str
     affected_services: str
     incident_body: str
     incident_url: str
-    agent_uuid: str
     channel: str
-    copilot_prompt: str = ""
 
     def to_message(self) -> Message:
-        """Convert to SlackMessage."""
+
         return Message(
             channel=self.channel,
             text=f"🚨 INCIDENT: {self.incident_title}",
-            attachments=[
-                Attachment(
-                    color="danger",
-                    blocks=[
-                        HeaderBlock(
-                            text=PlainTextObject(text="🚨 PRODUCTION INCIDENT ALERT")
-                        ),
-                        SectionBlock(
-                            text=MarkdownTextObject(text=f"*{self.incident_title}*")
-                        ),
-                        DividerBlock(),
-                        SectionBlock(
-                            fields=[
-                                MarkdownTextObject(text=f"*🆔 ID:*\n{self.incident_id}"),
-                                MarkdownTextObject(text=f"*🔥 Severity:*\n{self.incident_severity}"),
-                                MarkdownTextObject(text=f"*⚡ Priority:*\n{self.incident_priority}"),
-                                MarkdownTextObject(text=f"*🎯 Services:*\n{self.affected_services}")
-                            ]
-                        ),
-                        SectionBlock(
-                            text=MarkdownTextObject(text=f"*📝 Description:*\n{self.incident_body}")
-                        ),
-                        ActionsBlock(
-                            elements=[
-                                ButtonElement(
-                                    text=PlainTextObject(text="📊 Dashboard", emoji=True),
-                                    url=self.incident_url,
-                                    style=ButtonStyle.PRIMARY
-                                ),
-                                ButtonElement(
-                                    text=PlainTextObject(text="🤖 Co-Pilot Mode", emoji=True),
-                                    style=ButtonStyle.PRIMARY,
-                                    value=str({"agent_uuid": self.agent_uuid, "message": self.copilot_prompt}),
-                                    action_id="agent.process_message_1"
-                                )
-                            ]
+            blocks=[
+                HeaderBlock(
+                    text=PlainTextObject(text="🚨 Received incident to traige in PRODUCTION!", emoji=True)
+                ),
+                SectionBlock(
+                    text=MarkdownTextObject(text=f"*{self.incident_title}*")
+                ),
+                SectionBlock(
+                    fields=[
+                        MarkdownTextObject(text=f"*ID:* {self.incident_id}"),
+                        MarkdownTextObject(text=f"*Severity:* {self.severity_emoji} {self.incident_severity}"),
+                        MarkdownTextObject(text=f"*Priority:* {self.incident_priority}"),
+                        MarkdownTextObject(text=f"*Services:* {self.affected_services}")
+                    ]
+                ),
+                DividerBlock(),
+                SectionBlock(
+                    text=MarkdownTextObject(text=f"{self.incident_body}")
+                ),
+                DividerBlock(),
+                ActionsBlock(
+                    elements=[
+                        ButtonElement(
+                            text=PlainTextObject(text="📊 View on Datadog", emoji=True),
+                            url=self.incident_url,
+                            style=ButtonStyle.PRIMARY
                         )
+                    ]
+                ),
+                ContextBlock(
+                    type=BlockType.CONTEXT,
+                    elements=[
+                        MarkdownTextObject(text="⚡ AI investigation will begin automatically in a few seconds...")
+                    ],
+                ),
+            ]
+        )
+
+
+class InvestigationProgressMessage(MessageModel):
+    """Message for investigation progress notification."""
+    channel: str
+    incident_id: str
+    incident_title: str
+    incident_severity: str
+    affected_services: str
+    timeout_minutes: str
+
+    def to_message(self) -> Message:
+        return Message(
+            channel=self.channel,
+            text="🔍 AI Investigation Started",
+            blocks=[
+                SectionBlock(
+                    text=MarkdownTextObject(text=f"🔍 *AI Investigation Started*\n{self.incident_title}")
+                ),
+                ContextBlock(
+                    elements=[
+                        MarkdownTextObject(
+                            text=f"ID: {self.incident_id} | Severity: {self.incident_severity} | Services: {self.affected_services}")
+                    ]
+                ),
+                DividerBlock(),
+                SectionBlock(
+                    fields=[
+                        MarkdownTextObject(text="*🇺🇸 NA Agent*\n🟢 Analyzing..."),
+                        MarkdownTextObject(text="*🇪🇺 EU Agent*\n🟢 Analyzing...")
+                    ]
+                ),
+                ContextBlock(
+                    elements=[
+                        MarkdownTextObject(
+                            text=f"⏱️ ETA: ~{self.timeout_minutes} minutes | 💡 Partial results will be provided even if steps fail")
                     ]
                 )
             ]
         )
 
-
-class InvestigationStartMessage(MessageModel):
-    """Message for investigation start notification."""
+class InvestigationResultsMessage(MessageModel):
+    """Message for investigation results notification."""
     channel: str
-    investigation_agent: str
-    investigation_timeout: str
-    max_retries: str
+    incident_id: str
+    incident_title: str
+    incident_severity: str
+    severity_emoji: str
+    affected_services: str
+    tldr_summary: str
+    files_section: str
+    timestamp: str
 
     def to_message(self) -> Message:
         return Message(
             channel=self.channel,
-            text="🔍 AI Investigation Starting",
-            attachments=[
-                Attachment(
-                    color="#ff9900",
-                    blocks=[
-                        HeaderBlock(
-                            text=PlainTextObject(text="🔍 AI INVESTIGATION STARTING")
-                        ),
-                        SectionBlock(
-                            fields=[
-                                MarkdownTextObject(text=f"*Agent:*\n{self.investigation_agent or "test-workflow"}"),
-                                MarkdownTextObject(text=f"*Timeout:*\n{self.investigation_timeout}s"),
-                                MarkdownTextObject(text=f"*Retries:*\n{self.max_retries or "3"}"),
-                            ]
-                        ),
-                        SectionBlock(
-                            text=MarkdownTextObject(text="AI agent is now investigating the incident. Results will be posted here when complete.")
-                        )
+            text='✅ AI Investigation Complete',
+            blocks=[
+                HeaderBlock(
+                    text=PlainTextObject(text="✅ AI INVESTIGATION COMPLETE", emoji=True)
+                ),
+                SectionBlock(
+                    fields=[
+                        MarkdownTextObject(text=f'*Incident:* {self.incident_id}'),
+                        MarkdownTextObject(text=f'*Severity:* {self.severity_emoji} {self.incident_severity}'),
+                        MarkdownTextObject(text=f'*Services:* {self.affected_services}'),
+                        MarkdownTextObject(text=f'*Title:* {self.incident_title}'),
                     ]
-                )
+                ),
+                DividerBlock(),
+                SectionBlock(
+                    text=MarkdownTextObject(text=f'*🎯 Summary:*\n{self.tldr_summary}')
+                ),
+                DividerBlock(),
+                SectionBlock(
+                    text=MarkdownTextObject(text=f'*📄 Investigation Reports:*\n{self.files_section}')
+                ),
+                ContextBlock(
+                    elements=[
+                        MarkdownTextObject(text=f'_Investigation completed at {self.timestamp}_')
+                    ]
+                ),
             ]
         )

@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import List, Optional, Union, Dict, Any
 from pydantic import BaseModel
+import requests
 
 class TextType(str, Enum):
     """Text object types for Slack Block Kit."""
@@ -167,3 +168,14 @@ class Message(BaseModel):
     def to_json(self) -> str:
         """Convert to JSON"""
         return self.model_dump_json(exclude_none=True, indent=2)
+
+    def send(self, token: str) -> int:
+
+        """Send the message to the appropriate channel."""
+        msg = self.model_dump(exclude_none=True)
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        }
+        response = requests.post('https://slack.com/api/chat.postMessage', headers=headers, json=msg)
+        return response.status_code

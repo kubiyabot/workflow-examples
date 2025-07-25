@@ -3,52 +3,54 @@ def generate_incident_response_workflow() -> 'Workflow':
     from kubiya_workflow_sdk.dsl import Workflow
     from models.models import (
         ValidateIncident,
+        NormalizeChannelNameCommand,
         ValidationFailure,
         SupportedDatasets,
         DatadogMetrics,
         CopilotContext,
         PostIncidentAlert,
-        InvestigationStart,
-        InvestigateKubernetesClusterHealth,
-        InvestigateServiceSpecific,
-        IncidentReportData,
-        ExecutiveSummaryData,
-        CleanClusterInvestigationData,
-        CleanServiceInvestigationData,
-        FormatSlackReportsData,
+        InvestigationProgress,
+        InvestigateNAClusterHealth,
+        InvestigateEUClusterHealth,
+        IncidentReport,
+        ExecutiveSummary,
+        CleanNAInvestigation,
+        CleanEUInvestigation,
+        FormatSlackReports,
         InvestigationResults,
     )
     wf = (
         Workflow("production-incident-workflow")
         .description("Production-grade incident response workflow with AI investigation and Slack integration")
         .params(
-            incident_id="PLACEHOLDER_ID",
-            incident_title="PLACEHOLDER_TITLE",
-            incident_severity="PLACEHOLDER_SEVERITY",
+            incident_id="549",
+            incident_title="testing kubiya parcel service is down",
+            incident_severity="UNKNOWN",
             incident_priority="PLACEHOLDER_PRIORITY",
-            incident_body="PLACEHOLDER_DESCRIPTION",
-            incident_url="PLACEHOLDER_URL",
+            incident_body="Status: Active | Severity: Unknown | Commander: Abhishek Sharma\nhttps://p44.datadoghq.com/incidents/549",
+            incident_url="https://p44.datadoghq.com/incidents/549",
             incident_source="PLACEHOLDER_SOURCE",
             incident_owner="PLACEHOLDER_OWNER",
-            slack_channel_id="PLACEHOLDER_CHANNEL",
+            slack_channel_id="#inc-549-testing kubiya parcel service is down",
             notification_channels="#alerts",
             escalation_channel="#incident-escalation",
             investigation_timeout="3600",
             max_retries="3",
             investigation_agent="test-workflow",
             customer_impact="PLACEHOLDER_IMPACT",
-            affected_services="PLACEHOLDER_SERVICES",
+            affected_services= "parcel-service",
             dd_environment="na-integration",
             k8s_environment="p44-qa-integration",
             agent_uuid="1b0ed7bc-6385-40f8-8a62-bd9932bdadc2",
+            normalize_channel_name="false"
         )
         .env(
-            KUBIYA_API_KEY="PLACEHOLDER_API_KEY",
+            KUBIYA_API_KEY="${KUBIYA_API_KEY}",
             KUBIYA_USER_EMAIL="${KUBIYA_USER_EMAIL}",
-            KUBIYA_USER_ORG="default",
             INCIDENT_SEVERITY="medium",
             INCIDENT_PRIORITY="medium"
         )
+        # .timeout(1800)
         .step("validate-incident", callback=lambda s:
             s.description("Validate incident parameters and prerequisites")
                 .shell(
@@ -65,27 +67,33 @@ def generate_incident_response_workflow() -> 'Workflow':
                 )
                 .output("validation_status"),
         )
+        .step("normalize-channel-name", callback=lambda s:
+            s.description("Normalize the channel name by replacing spaces with underscores")
+                .shell(
+                    NormalizeChannelNameCommand(
+                        slack_channel_id="${slack_channel_id}",
+                        normalize_channel_name="${normalize_channel_name:-true}",
+                    ).get_command(),
+                    with_config=False
+                )
+                .depends("validate-incident")
+                .output("NORMALIZED_CHANNEL_NAME"),
+        )
         .step("setup-slack-integration", callback=lambda s:
             s.description("Initialize Slack integration for incident communications")
                 .kubiya(
                     url="api/v1/integration/slack/token/1",
                     method="GET",
-                    timeout=30,
                     silent=False,
                 )
-                .depends("validate-incident")
+                .depends("normalize-channel-name")
                 .output("slack_token"),
         )
-        .step("handle-validation-failure", callback=lambda s:
-            s.description("Send Slack notification when services are missing and create validation agent")
+        .step("validation_failure_message", callback=lambda s:
+            s.description("Prepare validation failure message if parameters are missing")
                 .shell(
                     ValidationFailure(
-                        incident_id="${incident_id}",
-                        incident_title="${incident_title}",
-                        incident_severity="${incident_severity}",
-                        channel="${slack_channel_id}",
-                        affected_services="${affected_services}",
-                        slack_token="${slack_token}",
+                        missing_params="${MISSING_PARAMS}"
                     ).get_command()
                 )
                 .depends("setup-slack-integration")
@@ -116,9 +124,6 @@ def generate_incident_response_workflow() -> 'Workflow':
                         incident_severity="${incident_severity}",
                         affected_services="${affected_services}",
                         incident_priority="${incident_priority}",
-                        incident_source="${incident_source}",
-                        incident_owner="${incident_owner}",
-                        customer_impact="${customer_impact}",
                         datadog_metrics_config="${datadog_metrics_config}",
                         observe_supported_ds_ids="${observe_supported_ds_ids}",
                     ).get_command()
@@ -133,163 +138,285 @@ def generate_incident_response_workflow() -> 'Workflow':
                         incident_id="${incident_id}",
                         incident_title="${incident_title}",
                         incident_severity="${incident_severity}",
-                        incident_priority="${incident_priority}",
+                        incident_priority="${incident_priority:-Not Set}",
                         affected_services="${affected_services}",
                         incident_body="${incident_body}",
                         incident_url="${incident_url}",
-                        channel="${slack_channel_id}",
-                        agent_uuid="${agent_uuid}",
-                        copilot_prompt="${copilot_prompts}",
+                        channel="${NORMALIZED_CHANNEL_NAME}",
                         slack_token="${slack_token.token}",
                     ).get_command()
                 )
                 .depends("prepare-copilot-context")
                 .output("initial_alert_message"),
         )
-        .step("notify-investigation-start", callback=lambda s:
-            s.description("Notify AI investigation start")
+        .step("notify-investigation-progress", callback=lambda s:
+            s.description("Post consolidated investigation progress update")
                 .shell(
-                    InvestigationStart(
-                        investigation_agent="${investigation_agent}",
-                        investigation_timeout="${investigation_timeout}",
-                        affected_services="${affected_services}",
-                        max_retries="${max_retries}",
-                        slack_token="${slack_token.token}",
-                        channel="${slack_channel_id}",
-                    ).get_command()
-                )
-                .depends("post-incident-alert")
-                .output("investigation_start_message"),
-        )
-        .step("investigate-kubernetes-cluster-health", callback=lambda s:
-            s.description("AI-powered Kubernetes basic cluster health investigation")
-                .agent(
-                    name="test-workflow",
-                    message=InvestigateKubernetesClusterHealth(
-                                incident_id="${incident_id}",
-                                incident_title="${incident_title}",
-                                incident_severity="${incident_severity}",
-                                datadog_metrics_config="${datadog_metrics_config}",
-                            ).get_command(),
-                )
-                .timeout(3000)
-                .retries(5)
-                .depends("notify-investigation-start", "get-datadog-metrics-config")
-                .output("kubernetes_cluster_health_results")
-        )
-        .step("investigate-service-specific", callback=lambda s:
-            s.description("AI-powered service-specific investigation in service specific namespace")
-                .agent(
-                    name="test-workflow",
-                    message=InvestigateServiceSpecific(
+                    InvestigationProgress(
                         incident_id="${incident_id}",
+                        investigation_timeout="${investigation_timeout:-300}",
+                        channel="${NORMALIZED_CHANNEL_NAME}",
                         incident_title="${incident_title}",
                         incident_severity="${incident_severity}",
                         affected_services="${affected_services}",
-                        datadog_metrics_config="${datadog_metrics_config}",
-                        observe_supported_ds_ids="${observe_supported_ds_ids}",
-                        k8s_environment="${k8s_environment}",
-                        dd_environment="${dd_environment}",
+                        slack_token="${slack_token.token}",
                     ).get_command()
                 )
-                .timeout(3000)
-                .retries(5)
-                .depends("investigate-kubernetes-cluster-health", "get-observe-supported-datasets", "get-datadog-metrics-config")
-                .output("service_specific_results")
+                .depends("post-incident-alert")
+                .output("investigation_progress_message"),
+        )
+        .step("investigate-na-cluster-health", callback=lambda s:
+            s.description("AI-powered cross-cluster investigation for NA Production")
+                .agent(
+                    name="p44-na-prod-incident-workflow",
+                    message=InvestigateNAClusterHealth(
+                                incident_id="{{.incident_id}}",
+                                incident_title="{{.incident_title}}"
+                            ).get_command(),
+                )
+                .timeout(300)
+                .retry(
+                    limit=3,
+                    interval_sec=10,
+                    # backoff=2.0,
+                    # max_interval_sec=60,
+                )
+                .continue_on(
+                    failure=True,
+                    mark_success=False,
+                    output=[
+                        "ERROR: Sorry, I had an issue",
+                        "Agent-manager not found",
+                        "Stream error",
+                        "INTERNAL_ERROR",
+                        "stream ID",
+                        "received from peer",
+                        "re:stream error.*INTERNAL_ERROR",
+                        "exit code 1",
+                        "API key",
+                        "command failed",
+                        "Kubiya CLI"
+                    ],
+                )
+                .depends("notify-investigation-progress", "get-datadog-metrics-config", "get-observe-supported-datasets")
+                .output("na_cluster_results")
+        )
+        .step("investigate-eu-cluster-health", callback=lambda s:
+            s.description("AI-powered cross-cluster investigation for EU Production")
+                .agent(
+                    name="p44-eu-prod-incident-workflow",
+                    message=InvestigateEUClusterHealth(
+                        incident_id="{{.incident_id}}",
+                        incident_title="{{.incident_title}}"
+                    ).get_command(),
+                )
+            .timeout(300)
+            .retry(
+                limit=3,
+                interval_sec=10,
+                # backoff=2.0,
+                # max_interval_sec=60,
+            )
+            .continue_on(
+                failure=True,
+                mark_success=False,
+                output=[
+                    "ERROR: Sorry, I had an issue",
+                    "Agent-manager not found",
+                    "Stream error",
+                    "INTERNAL_ERROR",
+                    "stream ID",
+                    "received from peer",
+                    "re:stream error.*INTERNAL_ERROR",
+                    "exit code 1",
+                    "API key",
+                    "command failed",
+                    "Kubiya CLI"
+                ],
+            )
+            .depends("notify-investigation-progress", "get-datadog-metrics-config", "get-observe-supported-datasets")
+            .output("eu_cluster_results")
         )
         .step("create-incident-report", callback=lambda s:
             s.description("Create comprehensive incident report with TLDR summary using cleaned data")
-                    .llm_completion(
-                        model="gpt-4o",
-                        temperature=0.3,
-                        max_tokens=4096,
-                        evaluate=True,
-                        prompt=(m := IncidentReportData(
-                            incident_id="${incident_id}",
-                            incident_title="${incident_title}",
-                            incident_severity="${incident_severity}",
-                            affected_services="${affected_services}",
-                            cleaned_cluster_results="${cleaned_cluster_results}",
-                            cleaned_service_results="${cleaned_service_results}",
-                        ).get_prompt()).prompt,
-                        system_prompt=m.system_prompt
-                    )
-                    .timeout(300)
-                    .retries(5)
-                    .depends("clean-cluster-investigation", "clean-service-investigation")
-                    .output("formatted_incident_report"),
+                .agent(
+                    name="p44-na-prod-incident-workflow",
+                    message=IncidentReport(
+                        incident_id="{{.incident_id}}",
+                        incident_title="{{.incident_title}}",
+                        incident_severity="{{.incident_severity}}",
+                        affected_services="{{.affected_services}}",
+                        cleaned_na_results="{{.cleaned_na_results}}",
+                        cleaned_eu_results="{{.cleaned_eu_results}}",
+                    ).get_command(),
+                )
+            .timeout(900)
+            .retry(
+                limit=5,
+                interval_sec=10,
+                # backoff=2.0,
+                # max_interval_sec=120,
+            )
+            .continue_on(
+                failure=True,
+                mark_success=False,
+                output=[
+                    "Stream error",
+                    "INTERNAL_ERROR",
+                    "Agent-manager not found",
+                    "exit code 1",
+                    "API key",
+                    "command failed",
+                    "Kubiya CLI",
+                    "re:exit code [0-9]+",
+                    "re:failed.*agent"
+                ],
+            )
+            .depends("clean-na-investigation", "clean-eu-investigation")
+            .output("formatted_incident_report")
         )
         .step("create-executive-summary", callback=lambda s:
-                s.description("Create concise executive summary using LLM")
-                    .llm_completion(
-                        model="gpt-4o",
-                        temperature=0.3,
-                        max_tokens=2000,
-                        evaluate=True,
-                        json_mode=True,
-                        prompt=(m := ExecutiveSummaryData(
-                            incident_id="${incident_id}",
-                            incident_title="${incident_title}",
-                            incident_severity="${incident_severity}",
-                            affected_services="${affected_services}",
-                            formatted_incident_report="${formatted_incident_report}",
-                        ).get_prompt()).prompt,
-                        system_prompt=m.system_prompt
-                    )
-                .timeout(60)
-                .retries(5)
+            s.description("Create concise executive summary using agent")
+                .agent(
+                    name="p44-na-prod-incident-workflow",
+                    message=ExecutiveSummary(
+                        incident_id="{{.incident_id}}",
+                        incident_title="{{.incident_title}}",
+                        incident_severity="{{.incident_severity}}",
+                        affected_services="{{.affected_services}}",
+                        formatted_incident_report="{{.formatted_incident_report}}",
+                    ).get_command(),
+                )
+                .timeout(900)
+                .retry(
+                    limit=5,
+                    interval_sec=10,
+                    # backoff=2.0,
+                    # max_interval_sec=120,
+                )
+                .continue_on(
+                    failure=True,
+                    mark_success=False,
+                    output=[
+                        "Stream error",
+                        "INTERNAL_ERROR",
+                        "Agent-manager not found",
+                        "exit code 1",
+                        "API key",
+                        "command failed",
+                        "Kubiya CLI",
+                        "re:exit code [0-9]+",
+                        "re:failed.*agent"
+                    ],
+                )
                 .depends("create-incident-report")
-                .output("executive_summary"),
+                .output("executive_summary")
         )
-        .step("clean-cluster-investigation", callback=lambda s:
-                s.description("Clean cluster investigation output for LLM processing")
-                    .llm_completion(
-                        model="gpt-4o",
-                        temperature=0.1,
-                        max_tokens=4000,
-                        evaluate=True,
-                        prompt=(m := CleanClusterInvestigationData(
-                            kubernetes_cluster_health_results="${kubernetes_cluster_health_results}",
-                        ).get_prompt()).prompt,
-                        system_prompt=m.system_prompt
-                    )
-                .timeout(30)
-                .depends("investigate-kubernetes-cluster-health")
-                .output("cleaned_cluster_results"),
+        .step("clean-na-investigation", callback=lambda s:  # +
+            s.description("Clean NA cluster investigation output for LLM processing")
+                .agent(
+                    name="p44-na-prod-incident-workflow",
+                    message=CleanNAInvestigation(
+                        na_cluster_results="{{.na_cluster_results}}",
+                    ).get_command(),
+                )
+                .timeout(900)
+                .retry(
+                    limit=5,
+                    interval_sec=10,
+                    # backoff=2.0,
+                    # max_interval_sec=120,
+                )
+                .continue_on(
+                    failure=True,
+                    mark_success=False,
+                    output=[
+                        "Agent-manager not found",
+                        "ERROR:",
+                        "Stream error",
+                        "INTERNAL_ERROR",
+                        "stream ID",
+                        "re:stream error.*INTERNAL_ERROR",
+                        "exit code 1",
+                        "API key",
+                        "command failed",
+                        "Kubiya CLI",
+                        "re:exit code [0-9]+",
+                        "re:failed.*agent"
+                    ],
+                )
+                .depends("investigate-na-cluster-health")
+                .output("cleaned_na_results")
         )
-        .step("clean-service-investigation", callback=lambda s:
-                s.description("Clean service investigation output for LLM processing")
-                    .llm_completion(
-                        model="gpt-4o",
-                        temperature=0.1,
-                        max_tokens=4000,
-                        evaluate=True,
-                        prompt=(m := CleanServiceInvestigationData(
-                            service_specific_results="${service_specific_results}",
-                        ).get_prompt()).prompt,
-                        system_prompt=m.system_prompt
-                    )
-                .timeout(30)
-                .depends("investigate-service-specific")
-                .output("cleaned_service_results"),
+        .step("clean-eu-investigation", callback=lambda s:  # +
+            s.description("Clean EU cluster investigation output for LLM processing")
+                .agent(
+                    name="p44-eu-prod-incident-workflow",
+                    message=CleanEUInvestigation(
+                        eu_cluster_results="{{.eu_cluster_results}}",
+                    ).get_command(),
+                )
+                .timeout(900)
+                .retry(
+                    limit=5,
+                    interval_sec=10,
+                    # backoff=2.0,
+                    # max_interval_sec=120,
+                )
+                .continue_on(
+                    failure=True,
+                    mark_success=False,
+                    output=[
+                        "Agent-manager not found",
+                        "ERROR:",
+                        "Stream error",
+                        "INTERNAL_ERROR",
+                        "stream ID",
+                        "re:stream error.*INTERNAL_ERROR",
+                        "exit code 1",
+                        "API key",
+                        "command failed",
+                        "Kubiya CLI",
+                        "re:exit code [0-9]+",
+                        "re:failed.*agent"
+                    ],
+                )
+                .depends("investigate-eu-cluster-health")
+                .output("cleaned_eu_results")
         )
-        .step("format-slack-reports", callback=lambda s:
-                s.description("Format concise reports for Slack upload")
-                    .llm_completion(
-                        model="gpt-4o",
-                        temperature=0.3,
-                        max_tokens=3000,
-                        evaluate=True,
-                        prompt=(m := FormatSlackReportsData(
-                            cleaned_cluster_results="${cleaned_cluster_results}",
-                            cleaned_service_results="${cleaned_service_results}",
-                        ).get_prompt()).prompt,
-                        system_prompt=m.system_prompt
-                    )
-                .timeout(60)
-                .retries(5)
-                .depends("clean-cluster-investigation", "clean-service-investigation")
-                .output("formatted_summaries"),
+        .step("format-slack-reports", callback=lambda s:  # +
+            s.description("Format concise reports for Slack upload")
+                .agent(
+                    name="p44-eu-prod-incident-workflow",
+                    message=FormatSlackReports(
+                        cleaned_na_results="{{.cleaned_na_results}}",
+                        cleaned_eu_results="{{.cleaned_eu_results}}",
+                    ).get_command(),
+                )
+                .timeout(900)
+                .retry(
+                    limit=5,
+                    interval_sec=10,
+                    # backoff=2.0,
+                    # max_interval_sec=120,
+                )
+                .continue_on(
+                    failure=True,
+                    mark_success=False,
+                    output=[
+                        "Stream error",
+                        "INTERNAL_ERROR",
+                        "Agent-manager not found",
+                        "exit code 1",
+                        "API key",
+                        "command failed",
+                        "Kubiya CLI",
+                        "re:exit code [0-9]+",
+                        "re:failed.*agent"
+                    ],
+                )
+                .depends("clean-na-investigation", "clean-eu-investigation")
+                .output("formatted_summaries")
         )
         .step("upload-investigation-results", callback=lambda s:
                 s.description("Upload investigation results as files to Slack and post summary")
@@ -299,13 +426,18 @@ def generate_incident_response_workflow() -> 'Workflow':
                         type="docker",
                         image="python:3.11-slim",
                         content=(m := InvestigationResults(
-                            input_file="../input_files/investigation_results.py",
-                            output_file="/tmp/upload_investigation_results.py",
+                            input_file="./input_files/investigation_results.py",
+                            output_file="/tmp/upload_results.py",
                         )).get_command(),
                         with_files= m.get_files(),
                         config_args=[
                             {
-                                "name": "slack_token_value",
+                                "name": "slack_token",
+                                "type": "string",
+                                "required": True
+                            },
+                            {
+                                "name": "channel",
                                 "type": "string",
                                 "required": True
                             },
@@ -330,22 +462,7 @@ def generate_incident_response_workflow() -> 'Workflow':
                                 "required": True
                             },
                             {
-                                "name": "slack_channel_id",
-                                "type": "string",
-                                "required": True
-                            },
-                            {
-                                "name": "incident_url",
-                                "type": "string",
-                                "required": True
-                            },
-                            {
-                                "name": "cluster_results",
-                                "type": "string",
-                                "required": True
-                            },
-                            {
-                                "name": "service_results",
+                                "name": "executive_summary",
                                 "type": "string",
                                 "required": True
                             },
@@ -355,57 +472,34 @@ def generate_incident_response_workflow() -> 'Workflow':
                                 "required": True
                             },
                             {
-                                "name": "agent_uuid",
+                                "name": "na_results",
                                 "type": "string",
                                 "required": True
                             },
                             {
-                                "name": "deep_dive_prompt",
-                                "type": "string",
-                                "required": False
-                            },
-                            {
-                                "name": "apply_fixes_prompt",
-                                "type": "string",
-                                "required": False
-                            },
-                            {
-                                "name": "monitoring_prompt",
-                                "type": "string",
-                                "required": False
-                            },
-                            {
-                                "name": "executive_summary",
+                                "name": "eu_results",
                                 "type": "string",
                                 "required": True
                             },
-                            {
-                                "name": "formatted_summaries",
-                                "type": "string",
-                                "required": True
-                            }
                         ],
                         args={
-                            "slack_token_value": "${slack_token.token}",
+                            "slack_token": "${slack_token.token}",
+                            "channel": "${NORMALIZED_CHANNEL_NAME}",
                             "incident_id": "${incident_id}",
                             "incident_title": "${incident_title}",
                             "incident_severity": "${incident_severity}",
                             "affected_services": "${affected_services}",
-                            "slack_channel_id": "${slack_channel_id}",
-                            "incident_url": "${incident_url}",
-                            "cluster_results": "${kubernetes_cluster_health_results}",
-                            "service_results": "${service_specific_results}",
-                            "formatted_report": "${formatted_incident_report}",
-                            "agent_uuid": "1b0ed7bc-6385-40f8-8a62-bd9932bdadc2",
-                            "deep_dive_prompt": "${DEEP_DIVE_PROMPT}",
-                            "apply_fixes_prompt": "${APPLY_FIXES_PROMPT}",
-                            "monitoring_prompt": "${MONITORING_PROMPT}",
                             "executive_summary": "${executive_summary}",
-                            "formatted_summaries": "${formatted_summaries}"
+                            "formatted_report": "${formatted_incident_report}",
+                            "na_results": "${cleaned_na_results}",
+                            "eu_results": "${cleaned_eu_results}"
                         }
-                )
-                .depends("create-incident-report", "create-executive-summary", "format-slack-reports")
-                .output("slack_post_status"),
+                    )
+                    .continue_on(
+                        failure=True,
+                    )
+                    .depends( "create-incident-report", "create-executive-summary", "format-slack-reports")
+                    .output("upload_summary_status")
         )
     )
 
