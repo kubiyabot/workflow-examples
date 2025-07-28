@@ -168,7 +168,7 @@ def generate_incident_response_workflow() -> 'Workflow':
         .step("investigate-na-cluster-health", callback=lambda s:
             s.description("AI-powered cross-cluster investigation for NA Production")
                 .agent(
-                    name="p44-na-prod-incident-workflow",
+                    name="chatops-eu",
                     message=InvestigateNAClusterHealth(
                                 incident_id="{{.incident_id}}",
                                 incident_title="{{.incident_title}}"
@@ -204,7 +204,7 @@ def generate_incident_response_workflow() -> 'Workflow':
         .step("investigate-eu-cluster-health", callback=lambda s:
             s.description("AI-powered cross-cluster investigation for EU Production")
                 .agent(
-                    name="p44-eu-prod-incident-workflow",
+                    name="chatops-eu",
                     message=InvestigateEUClusterHealth(
                         incident_id="{{.incident_id}}",
                         incident_title="{{.incident_title}}"
