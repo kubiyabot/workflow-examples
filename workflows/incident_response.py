@@ -312,7 +312,7 @@ def generate_incident_response_workflow() -> 'Workflow':
                 .depends("create-incident-report")
                 .output("executive_summary")
         )
-        .step("clean-na-investigation", callback=lambda s:  # +
+        .step("clean-na-investigation", callback=lambda s:
             s.description("Clean NA cluster investigation output for LLM processing")
                 .agent(
                     name="p44-na-prod-incident-workflow",
@@ -348,7 +348,7 @@ def generate_incident_response_workflow() -> 'Workflow':
                 .depends("investigate-na-cluster-health")
                 .output("cleaned_na_results")
         )
-        .step("clean-eu-investigation", callback=lambda s:  # +
+        .step("clean-eu-investigation", callback=lambda s:
             s.description("Clean EU cluster investigation output for LLM processing")
                 .agent(
                     name="p44-eu-prod-incident-workflow",
@@ -384,7 +384,7 @@ def generate_incident_response_workflow() -> 'Workflow':
                 .depends("investigate-eu-cluster-health")
                 .output("cleaned_eu_results")
         )
-        .step("format-slack-reports", callback=lambda s:  # +
+        .step("format-slack-reports", callback=lambda s:
             s.description("Format concise reports for Slack upload")
                 .agent(
                     name="p44-eu-prod-incident-workflow",
