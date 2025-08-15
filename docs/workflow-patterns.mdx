@@ -1,0 +1,377 @@
+---
+title: Workflow Patterns
+---
+
+# Workflow Patterns and Best Practices
+
+This documentation covers common workflow patterns, design principles, and best practices demonstrated in the workflow-examples project.
+
+## Core Workflow Patterns
+
+### 1. Linear Processing Pipeline
+
+The most straightforward pattern for sequential data processing:
+
+```python
+def create_linear_pipeline():
+    """Linear workflow where each step depends on the previous one."""
+    
+    return (Workflow("linear-pipeline")
+        .description("Sequential data processing pipeline")
+        .params(input_data="sample data")
+        
+        .step("validate", callback=lambda s:
+            s.description("Validate input data")
+            .tool(validator_tool)
+            .args(data="${input_data}")
+            .output("validation_result")
+        )
+        
+        .step("transform", callback=lambda s:
+            s.description("Transform validated data")
+            .tool(transform_tool)
+            .args(data="${input_data}")
+            .depends("validate")
+            .output("transformed_data")
+        )
+        
+        .step("store", callback=lambda s:
+            s.description("Store processed data")
+            .shell("echo '${transformed_data}' > /tmp/output.txt")
+            .depends("transform")
+            .output("storage_location")
+        )
+    )
+```
+
+**Use Cases:**
+- Data ETL pipelines
+- Document processing workflows
+- Sequential validation chains
+
+### 2. Parallel Processing with Convergence
+
+Process multiple items in parallel and then combine results:
+
+```python
+def create_parallel_convergence_workflow():
+    """Parallel processing that converges to a single result."""
+    
+    return (Workflow("parallel-convergence")
+        .description("Process multiple inputs in parallel then combine")
+        .params(
+            url_list=["https://api1.com", "https://api2.com", "https://api3.com"]
+        )
+        
+        # Parallel validation steps
+        .step("validate-apis", callback=lambda s:
+            s.description("Validate all API endpoints in parallel")
+            .tool(url_validator)
+            .parallel(items="${url_list}", max_concurrent=3)
+            .args(url="${ITEM}")
+            .output("validation_results")
+        )
+        
+        # Convergence step
+        .step("analyze-results", callback=lambda s:
+            s.description("Analyze all validation results")
+            .shell("""
+echo "=== API Validation Summary ==="
+echo "Total APIs checked: $(echo '${validation_results}' | wc -l)"
+echo "Results:"
+echo "${validation_results}"
+            """)
+            .depends("validate-apis")
+            .output("analysis_summary")
+        )
+    )
+```
+
+## Design Principles
+
+### 1. Single Responsibility Principle
+
+Each step should have a single, well-defined responsibility:
+
+```python
+# Good: Single responsibility per step
+.step("validate-input", callback=lambda s:
+    s.description("Validate input URL format")
+    .tool(url_validator)
+    .args(url="${input_url}")
+    .output("is_valid")
+)
+
+.step("check-connectivity", callback=lambda s:
+    s.description("Check URL connectivity")
+    .tool(network_checker)
+    .args(target="${input_url}")
+    .depends("validate-input")
+    .output("is_reachable")
+)
+
+# Avoid: Multiple responsibilities in one step
+.step("validate-and-check", callback=lambda s:
+    s.description("Validate URL and check connectivity")
+    .shell("""
+# Validate URL format
+if echo '${input_url}' | grep -q '^https://'; then
+    echo "Valid URL"
+    # Also check connectivity
+    curl -f '${input_url}' > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "URL is reachable"
+    fi
+fi
+    """)
+    .output("validation_and_connectivity")
+)
+```
+
+### 2. Explicit Dependencies
+
+Make step dependencies clear and explicit:
+
+```python
+# Good: Clear dependency chain
+.step("step1", callback=lambda s: ...)
+.step("step2", callback=lambda s: 
+    s.depends("step1")
+    # ...
+)
+.step("step3", callback=lambda s:
+    s.depends("step1", "step2")  # Multiple dependencies
+    # ...
+)
+
+# Avoid: Implicit dependencies through variable usage alone
+.step("step2", callback=lambda s:
+    s.shell("echo 'Using ${step1_result}'")  # Implicit dependency
+    # ...
+)
+```
+
+### 3. Meaningful Outputs
+
+Use descriptive output variable names that indicate the data type and purpose:
+
+```python
+# Good: Descriptive output names
+.output("validation_result")
+.output("api_response_json")
+.output("error_count")
+.output("processing_summary")
+
+# Avoid: Generic output names
+.output("result")
+.output("data")
+.output("status")
+```
+
+### 4. Error Handling Strategy
+
+Design consistent error handling across your workflow:
+
+```python
+# Strategy 1: Fail-fast for critical steps
+.step("critical-validation", callback=lambda s:
+    s.description("Critical validation that must succeed")
+    .tool(validator)
+    .args(data="${input}")
+    .continue_on(failure=False)  # Fail entire workflow
+    .output("validation_result")
+)
+
+# Strategy 2: Continue with error logging for non-critical steps
+.step("optional-enhancement", callback=lambda s:
+    s.description("Optional data enhancement")
+    .tool(enhancer)
+    .args(data="${input}")
+    .continue_on(failure=True)  # Continue workflow
+    .retry(limit=2, interval_sec=10)
+    .output("enhanced_data")
+)
+
+# Strategy 3: Fallback mechanisms
+.step("primary-operation", callback=lambda s:
+    s.description("Primary operation with fallback")
+    .tool(primary_tool)
+    .args(data="${input}")
+    .continue_on(failure=True)
+    .output("primary_result")
+)
+
+.step("fallback-operation", callback=lambda s:
+    s.description("Fallback operation if primary fails")
+    .tool(fallback_tool)
+    .args(data="${input}")
+    .preconditions("${primary_result} == 'failed'")
+    .depends("primary-operation")
+    .output("fallback_result")
+)
+```
+
+## Integration Patterns
+
+### Tool and Shell Integration
+
+Combine custom tools with shell commands effectively:
+
+```python
+def create_hybrid_workflow():
+    """Workflow combining custom tools and shell commands."""
+    
+    return (Workflow("hybrid-processing")
+        .description("Combine tool and shell step capabilities")
+        .params(input_data='{"users": [{"name": "Alice"}, {"name": "Bob"}]}')
+        
+        # Use custom tool for complex processing
+        .step("validate-json", callback=lambda s:
+            s.description("Validate JSON structure using custom tool")
+            .tool(json_processor)
+            .args(
+                json_data="${input_data}",
+                operation="validate"
+            )
+            .output("validation_result")
+        )
+        
+        # Use shell for simple operations
+        .step("count-users", callback=lambda s:
+            s.description("Count users using shell JSON processing")
+            .shell("""
+user_count=$(echo '${input_data}' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(len(data.get('users', [])))
+")
+echo "Total users: $user_count"
+            """)
+            .depends("validate-json")
+            .output("user_count")
+        )
+        
+        # Back to custom tool for complex formatting
+        .step("format-output", callback=lambda s:
+            s.description("Format final output using custom tool")
+            .tool(json_processor)
+            .args(
+                json_data="${input_data}",
+                operation="pretty"
+            )
+            .depends("count-users")
+            .output("formatted_output")
+        )
+    )
+```
+
+### Model Integration Pattern
+
+Integrate with the model system for complex data handling:
+
+```python
+from models.models import ValidateIncident, CopilotContextData
+
+def create_model_integrated_workflow():
+    """Workflow integrating with model-based processing."""
+    
+    return (Workflow("incident-processing")
+        .description("Process incidents using model integration")
+        .params(
+            incident_id="INC-123",
+            incident_title="Database Connection Issues",
+            incident_severity="High"
+        )
+        
+        # Model-based validation
+        .step("validate-incident", callback=lambda s:
+            s.description("Validate incident data using model")
+            .shell(ValidateIncident(
+                incident_id="${incident_id}",
+                incident_title="${incident_title}",
+                incident_severity="${incident_severity}",
+                affected_services="database",
+                incident_priority="P1",
+                incident_owner="ops-team",
+                incident_source="monitoring",
+                customer_impact="Service degradation"
+            ).get_command())
+            .output("validation_summary")
+        )
+        
+        # Model-based context generation
+        .step("prepare-context", callback=lambda s:
+            s.description("Prepare AI context using model")
+            .shell(CopilotContextData(
+                incident_id="${incident_id}",
+                incident_title="${incident_title}",
+                incident_severity="${incident_severity}",
+                affected_services="database",
+                datadog_metrics_config="database.connections.active",
+                observe_supported_ds_ids="db-logs,error-logs"
+            ).get_prompt())
+            .depends("validate-incident")
+            .output("ai_context")
+        )
+    )
+```
+
+## Testing and Debugging Patterns
+
+### Debug Steps
+
+```python
+# Add debug steps during development
+.step("debug-checkpoint", callback=lambda s:
+    s.description("Debug checkpoint to inspect variables")
+    .shell("""
+echo "=== Debug Checkpoint ==="
+echo "Input data: ${input_data}"
+echo "Validation result: ${validation_result}"
+echo "Current timestamp: $(date)"
+echo "Working directory: $(pwd)"
+echo "Available files: $(ls -la /tmp/)"
+    """)
+    .depends("validation-step")
+)
+```
+
+### Conditional Debug Mode
+
+```python
+def create_debuggable_workflow(debug_mode=False):
+    """Workflow with optional debug steps."""
+    
+    workflow = (Workflow("debuggable-workflow")
+        .description("Workflow with optional debugging")
+        .params(input_data="test data")
+        
+        .step("main-processing", callback=lambda s:
+            s.description("Main processing step")
+            .tool(processor)
+            .args(data="${input_data}")
+            .output("result")
+        )
+    )
+    
+    # Add debug steps only in debug mode
+    if debug_mode:
+        workflow = workflow.step("debug-output", callback=lambda s:
+            s.description("Debug: Show processing result")
+            .shell("echo 'Debug - Processing result: ${result}'")
+            .depends("main-processing")
+        )
+    
+    return workflow
+```
+
+## See Also
+
+- [Custom Steps](./custom-steps.mdx) - Detailed step definition patterns
+- [Models Documentation](./models.mdx) - Model integration examples
+- [Workflow Examples](../workflows/workflows.py) - Complete implementations
+- [Custom Tools](../workflows/custom_tools.py) - Tool implementations
+
+---
+
+These patterns provide a foundation for building robust, maintainable workflows that scale with your automation needs.
