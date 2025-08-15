@@ -1,6 +1,10 @@
-def generate_incident_response_workflow() -> 'Workflow':
+from kubiya_workflow_sdk.dsl import Workflow
 
-    from kubiya_workflow_sdk.dsl import Workflow
+def generate_incident_response_workflow() -> 'Workflow':
+    """
+    Generate a production-grade incident response workflow with AI investigation and Slack integration.
+    """
+
     from models.models import (
         ValidateIncident,
         NormalizeChannelNameCommand,

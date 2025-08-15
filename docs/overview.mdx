@@ -1,0 +1,486 @@
+---
+title: Overview
+---
+
+# Workflow Examples Overview
+
+Welcome to the Kubiya Workflow Examples project! This documentation provides comprehensive guidance on building sophisticated workflows using the Kubiya Workflow SDK, with practical examples and battle-tested patterns.
+
+## What's Included
+
+This project demonstrates:
+
+- **Custom Tool Integration**: How to create and use custom tools with the enhanced `tool()` method
+- **Advanced Step Patterns**: Flexible step definition using callback lambdas
+- **Workflow Orchestration**: Complex workflow patterns including parallel processing, error handling, and conditional execution
+- **Model Integration**: Using Pydantic models for data validation and message composition
+- **Real-World Examples**: Complete workflows for URL validation, text processing, system monitoring, and incident response
+
+## Project Structure
+
+```
+workflow-examples/
+├── docs/                          # Comprehensive documentation
+│   ├── overview.mdx              # This overview (start here)
+│   ├── custom-steps.mdx          # Custom step patterns and usage
+│   ├── workflow-patterns.mdx     # Advanced workflow patterns
+│   ├── models.mdx                # Model integration guide
+│   ├── messages.mdx              # Message composition
+│   └── message-blocks.mdx        # Slack message blocks
+├── workflows/                     # Workflow implementations
+│   ├── custom_tools.py           # Custom tool definitions
+│   ├── workflows.py              # Simple workflow examples
+│   └── incident_response.py      # Complex incident response workflow
+├── models/                        # Data models and interfaces
+│   ├── models.py                 # Core model interfaces
+│   └── messages.py               # Message models
+├── message_blocks/                # Slack message block components
+│   └── blocks.py                 # Block definitions
+└── main.py                       # Entry point and examples
+```
+
+## Quick Start
+
+### 1. Basic Workflow with Custom Tools
+
+Start with a simple workflow that uses custom tools:
+
+```python
+from kubiya_workflow_sdk.dsl import Workflow
+from workflows.custom_tools import url_validator, json_processor
+
+# Create a simple validation workflow
+workflow = (Workflow("quick-validation")
+    .description("Quick validation example")
+    .params(target_url="https://api.example.com")
+    
+    # Step 1: Validate URL using custom tool
+    .step("validate", callback=lambda s:
+        s.description("Validate URL format")
+        .tool(url_validator)
+        .args(url="${target_url}")
+        .output("validation_result")
+    )
+    
+    # Step 2: Show result using shell
+    .step("show-result", callback=lambda s:
+        s.description("Display validation result")
+        .shell('echo "URL ${target_url} validation: ${validation_result}"')
+        .depends("validate")
+    )
+)
+
+# Execute the workflow
+print(workflow.to_yaml())
+```
+
+### 2. Understanding Custom Tools
+
+Custom tools are defined as Tool instances with complete specifications:
+
+```python
+from kubiya_workflow_sdk.tools.models import Tool, Arg
+
+url_validator = Tool(
+    name="url_validator",
+    type="docker",
+    image="alpine:latest",
+    content="""#!/bin/sh
+echo "Validating URL: $url"
+if echo "$url" | grep -q '^https\\?://'; then
+    echo "✓ Valid URL format"
+else
+    echo "✗ Invalid URL format"
+    exit 1
+fi
+""",
+    args=[
+        Arg(name="url", type="str", description="URL to validate", required=True)
+    ]
+)
+```
+
+**Key Benefits:**
+- **Type Safety**: Full IDE support with autocomplete
+- **Reusability**: Use the same tool across multiple workflows
+- **Validation**: Built-in argument validation
+- **Maintainability**: Tool logic separate from workflow orchestration
+
+### 3. Custom Step Pattern
+
+The project uses a powerful step definition pattern with callback lambdas:
+
+```python
+.step("step-name", callback=lambda s:
+    s.description("What this step does")
+    .tool(my_tool)                    # Use custom tool
+    .args(param1="value1")            # Pass arguments
+    .output("result_variable")        # Capture output
+    .depends("previous-step")         # Define dependencies
+    .timeout(300)                     # Set timeout
+    .retry(limit=3, interval_sec=10)  # Configure retries
+)
+```
+
+This pattern provides:
+- **Fluent API**: Chain configurations in a readable way
+- **IDE Support**: Full autocomplete within the lambda
+- **Flexibility**: Mix tools, shell commands, and other executors
+- **Type Safety**: Compile-time checking of step configurations
+
+## Core Concepts
+
+### Tool Integration
+
+The enhanced `tool()` method supports both string names and Tool instances:
+
+```python
+# Using Tool instance (recommended)
+.step("process", callback=lambda s:
+    s.tool(json_processor)  # Tool instance with full type safety
+    .args(json_data=data, operation="validate")
+)
+
+# Using registered tool name
+.step("notify", callback=lambda s:
+    s.tool("slack-notifier")  # String reference to registered tool
+    .args(channel="#alerts")
+)
+```
+
+### Step Dependencies
+
+Define clear execution order with dependencies:
+
+```python
+# Linear dependency chain
+.step("step1", callback=lambda s: ...)
+.step("step2", callback=lambda s: s.depends("step1"))
+.step("step3", callback=lambda s: s.depends("step2"))
+
+# Multiple dependencies
+.step("combine", callback=lambda s: 
+    s.depends("step1", "step2", "step3")
+)
+
+# Parallel execution (no dependencies)
+.step("parallel1", callback=lambda s: ...)
+.step("parallel2", callback=lambda s: ...)
+```
+
+### Variable Flow
+
+Pass data between steps using output variables:
+
+```python
+.step("producer", callback=lambda s:
+    s.tool(data_processor)
+    .args(input="${raw_input}")
+    .output("processed_data")  # Produces variable
+)
+
+.step("consumer", callback=lambda s:
+    s.shell("echo 'Processing: ${processed_data}'")  # Consumes variable
+    .depends("producer")
+)
+```
+
+## Example Workflows
+
+### 1. URL Validation Workflow
+
+A complete workflow demonstrating tool integration and error handling:
+
+```python
+def create_url_validation_workflow():
+    return (Workflow("url_validation_workflow")
+        .description("Validate URLs and check connectivity")
+        .params(target_url="https://example.com")
+        
+        .step("validate_url", callback=lambda s:
+            s.description("Validate URL format using custom tool")
+            .tool(url_validator)
+            .args(url="${target_url}")
+            .output("validation_result")
+        )
+        
+        .step("check_connectivity", callback=lambda s:
+            s.description("Check network connectivity")
+            .tool(network_checker)
+            .args(target="${target_url}")
+            .output("connectivity_result")
+        )
+        
+        .step("generate_summary", callback=lambda s:
+            s.description("Generate analysis summary")
+            .shell("""
+echo "=== URL Analysis Summary ==="
+echo "Target URL: ${target_url}"
+echo "Validation: ${validation_result}"
+echo "Connectivity: ${connectivity_result}"
+echo "Analysis completed at: $(date)"
+            """)
+            .depends("validate_url", "check_connectivity")
+        )
+    )
+```
+
+### 2. Text Processing Pipeline
+
+A multi-stage processing workflow with parallel and sequential steps:
+
+```python
+def create_text_processing_workflow():
+    return (Workflow("text_processing_workflow")
+        .description("Process and analyze text through multiple stages")
+        .params(input_text="Sample text for analysis")
+        
+        # Preparation (required by all subsequent steps)
+        .step("prepare_text", callback=lambda s:
+            s.description("Prepare text for analysis")
+            .shell('echo "Preparing..." && echo "${input_text}" > /tmp/input.txt')
+            .output("prepared")
+        )
+        
+        # Parallel analysis steps
+        .step("analyze_text", callback=lambda s:
+            s.description("Analyze text content")
+            .tool(text_analyzer)
+            .args(text="${input_text}")
+            .depends("prepare_text")
+            .output("analysis_result")
+        )
+        
+        .step("count_characters", callback=lambda s:
+            s.description("Count characters")
+            .shell('echo "Characters: $(echo -n "${input_text}" | wc -c)"')
+            .depends("prepare_text")
+            .output("char_count")
+        )
+        
+        .step("extract_keywords", callback=lambda s:
+            s.description("Extract unique words")
+            .shell("""
+echo "${input_text}" | tr ' ' '\\n' | tr '[:upper:]' '[:lower:]' | sort | uniq | head -10
+            """)
+            .depends("prepare_text")
+            .output("keywords")
+        )
+        
+        # Convergence step combining all results
+        .step("generate_report", callback=lambda s:
+            s.description("Generate comprehensive report")
+            .shell("""
+echo "=== Text Processing Report ==="
+echo "Character count: ${char_count}"
+echo ""
+echo "Analysis:"
+echo "${analysis_result}"
+echo ""
+echo "Keywords:"
+echo "${keywords}"
+echo ""
+echo "Report completed at: $(date)"
+            """)
+            .depends("analyze_text", "count_characters", "extract_keywords")
+        )
+    )
+```
+
+### 3. System Monitoring Workflow
+
+A monitoring workflow with conditional alerting:
+
+```python
+def create_monitoring_workflow():
+    return (Workflow("system_monitoring_workflow")
+        .description("Monitor system and analyze logs")
+        .params(
+            log_data="Sample log data with INFO and ERROR entries",
+            alert_threshold=80
+        )
+        
+        # Information gathering
+        .step("get_system_info", callback=lambda s:
+            s.description("Collect system information")
+            .tool(system_info)
+            .output("system_status")
+        )
+        
+        .step("analyze_logs", callback=lambda s:
+            s.description("Analyze logs for errors")
+            .tool(log_analyzer)
+            .args(logs="${log_data}", analysis_type="errors")
+            .output("error_analysis")
+        )
+        
+        # Health assessment with conditional alerting
+        .step("assess_health", callback=lambda s:
+            s.description("Assess system health")
+            .shell("""
+# Mock health assessment
+if echo "${error_analysis}" | grep -q "ERROR"; then
+    echo "CRITICAL: Errors detected in logs"
+    exit 1
+else
+    echo "OK: No critical errors found"
+fi
+            """)
+            .depends("analyze_logs")
+            .continue_on(failure=True)
+            .output("health_status")
+        )
+        
+        .step("generate_report", callback=lambda s:
+            s.description("Generate monitoring report")
+            .shell("""
+echo "=== System Monitoring Report ==="
+echo "System Status: ${system_status}"
+echo "Health Assessment: ${health_status}"
+echo "Error Analysis: ${error_analysis}"
+echo "Report generated at: $(date)"
+            """)
+            .depends("get_system_info", "assess_health")
+        )
+    )
+```
+
+## Advanced Features
+
+### Model Integration
+
+Integrate with Pydantic models for complex data handling:
+
+```python
+from models.models import ValidateIncident
+
+.step("validate-incident", callback=lambda s:
+    s.description("Validate incident using model")
+    .shell(lambda: ValidateIncident(
+        incident_id="${incident_id}",
+        incident_title="${incident_title}",
+        incident_severity="${incident_severity}",
+        affected_services="database",
+        incident_priority="P1",
+        incident_owner="ops-team",
+        incident_source="monitoring",
+        customer_impact="Service degradation"
+    ).get_command())
+    .output("validation_result")
+)
+```
+
+### Error Handling Strategies
+
+Implement comprehensive error handling:
+
+```python
+# Critical step - fail workflow on error
+.step("critical-validation", callback=lambda s:
+    s.description("Critical validation step")
+    .tool(validator)
+    .args(data="${input}")
+    .continue_on(failure=False)  # Fail entire workflow
+    .timeout(60)
+    .output("validation_result")
+)
+
+# Resilient step - retry with fallback
+.step("resilient-operation", callback=lambda s:
+    s.description("Operation with retry and fallback")
+    .tool(primary_tool)
+    .args(data="${input}")
+    .retry(limit=3, interval_sec=30)
+    .continue_on(failure=True)  # Continue to fallback
+    .timeout(300)
+    .output("operation_result")
+)
+
+# Fallback step
+.step("fallback-operation", callback=lambda s:
+    s.description("Fallback if primary operation fails")
+    .tool(fallback_tool)
+    .args(data="${input}")
+    .preconditions("${operation_result} == 'failed'")
+    .depends("resilient-operation")
+    .output("fallback_result")
+)
+```
+
+## Best Practices
+
+### 1. Step Design
+
+- **Single Responsibility**: Each step should do one thing well
+- **Clear Naming**: Use descriptive step names and output variables
+- **Explicit Dependencies**: Make step dependencies clear and explicit
+- **Error Handling**: Plan for failure scenarios
+
+### 2. Tool Usage
+
+- **Prefer Tool Instances**: Use Tool instances over string names for type safety
+- **Reusable Tools**: Design tools to be reusable across workflows
+- **Clear Interfaces**: Define clear argument interfaces with proper types
+- **Documentation**: Document tool purpose and usage
+
+### 3. Workflow Organization
+
+- **Logical Grouping**: Group related steps together
+- **Parallel Processing**: Use parallel execution where appropriate
+- **Resource Management**: Include cleanup steps for temporary resources
+- **Monitoring**: Add debug/monitoring steps during development
+
+### 4. Variable Management
+
+- **Descriptive Names**: Use clear variable names that indicate content type
+- **Scope Awareness**: Understand variable scope and lifecycle
+- **Data Flow**: Design clear data flow between steps
+
+## Common Patterns
+
+### 1. Validation Pipeline
+```
+Input → Validate Format → Validate Content → Process → Output
+```
+
+### 2. Fan-Out Fan-In
+```
+Input → Prepare → [Parallel Processing] → Combine Results → Output
+```
+
+### 3. Conditional Processing
+```
+Input → Check Condition → [Branch A or Branch B] → Merge → Output
+```
+
+### 4. Monitoring Loop
+```
+Collect Data → Analyze → Assess Health → [Alert if needed] → Report
+```
+
+## Getting Started
+
+1. **Explore Examples**: Start with the workflows in `workflows/workflows.py`
+2. **Understand Tools**: Review custom tools in `workflows/custom_tools.py`
+3. **Try Patterns**: Experiment with the patterns in `workflows/incident_response.py`
+4. **Read Documentation**: Use this docs folder for detailed guidance
+5. **Build Your Own**: Create workflows for your specific use cases
+
+## Documentation Guide
+
+- **[Custom Steps](./custom-steps.mdx)**: Detailed guide to step definition patterns
+- **[Workflow Patterns](./workflow-patterns.mdx)**: Advanced workflow design patterns
+- **[Models](./models.mdx)**: Model integration and data handling
+- **[Messages](./messages.mdx)**: Message composition for notifications
+- **[Message Blocks](./message-blocks.mdx)**: Slack message block system
+
+## Support and Resources
+
+- **GitHub Repository**: [kubiya-workflow-examples](https://github.com/kubiya-ai/workflow-examples)
+- **SDK Documentation**: [Kubiya Workflow SDK](https://docs.kubiya.ai)
+- **Community**: Join our Discord for support and discussions
+- **Examples**: More examples available in the workflows directory
+
+---
+
+Start building powerful, maintainable workflows with the patterns and tools demonstrated in this project!

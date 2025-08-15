@@ -1,0 +1,416 @@
+---
+title: Custom Steps
+---
+
+# Custom Steps Documentation
+
+This documentation covers how to create and use custom steps in Kubiya workflows, specifically focusing on the patterns and best practices demonstrated in the workflow-examples project.
+
+## Overview
+
+Custom steps in Kubiya workflows allow you to define reusable, configurable step definitions that can integrate with various executors including custom tools, shell commands, and other step types. The workflow-examples project demonstrates a powerful pattern using callback functions with lambda expressions for step definition.
+
+## Step Definition Patterns
+
+### The Callback Lambda Pattern
+
+The most flexible pattern used in workflow-examples is the callback lambda approach:
+
+```python
+from kubiya_workflow_sdk.dsl import Workflow
+from workflows.custom_tools import url_validator, json_processor
+
+workflow = (Workflow("example-workflow")
+    .step("step-name", callback=lambda s:
+        s.description("Step description")
+        .tool(url_validator)
+        .args(url="https://example.com")
+        .output("result_variable")
+    )
+)
+```
+
+**Benefits of this pattern:**
+- **Fluent API**: Chain multiple step configurations in a readable way
+- **IDE Support**: Full autocomplete and type checking within the lambda
+- **Flexibility**: Mix different executor types and configurations
+- **Maintainability**: Clear separation of step logic and workflow structure
+
+### Basic Step Components
+
+Every custom step typically includes:
+
+1. **Name**: Unique identifier for the step
+2. **Description**: Human-readable explanation of what the step does
+3. **Executor**: The actual execution mechanism (tool, shell, etc.)
+4. **Arguments**: Parameters passed to the executor
+5. **Output**: Variable name to capture step results
+6. **Dependencies**: Other steps this step depends on
+
+## Tool Integration Steps
+
+### Using Custom Tool Instances
+
+The most common pattern integrates custom tools defined in `workflows/custom_tools.py`:
+
+```python
+from workflows.custom_tools import json_processor, url_validator, text_analyzer
+
+# Tool step with custom tool instance
+.step("validate-input", callback=lambda s:
+    s.description("Validate URL format using custom tool")
+    .tool(url_validator)
+    .args(url="${input_url}")
+    .output("validation_result")
+)
+
+# Tool step with complex arguments
+.step("process-data", callback=lambda s:
+    s.description("Process JSON data with validation")
+    .tool(json_processor)
+    .args(
+        json_data="${raw_data}",
+        operation="validate"
+    )
+    .output("processed_data")
+    .depends("validate-input")
+)
+```
+
+### Advanced Tool Usage
+
+```python
+# Tool with timeout and error handling
+.step("analyze-large-text", callback=lambda s:
+    s.description("Analyze large text content")
+    .tool(text_analyzer)
+    .args(text="${large_content}")
+    .timeout(300)  # 5 minutes
+    .retry(limit=3, interval_sec=30)
+    .output("analysis_result")
+)
+```
+
+## Shell Command Steps
+
+### Simple Shell Steps
+
+```python
+# Basic shell command step
+.step("prepare-environment", callback=lambda s:
+    s.description("Prepare working environment")
+    .shell('mkdir -p /tmp/workspace && cd /tmp/workspace')
+    .output("workspace_ready")
+)
+
+# Multi-line shell script step
+.step("generate-report", callback=lambda s:
+    s.description("Generate comprehensive analysis report")
+    .shell("""
+echo "=== Analysis Report ==="
+echo "Input URL: ${input_url}"
+echo "Validation: ${validation_result}"
+echo "Processing: ${processed_data}"
+echo "Generated at: $(date)"
+echo "Report saved to: /tmp/report.txt"
+    """)
+    .depends("validate-input", "process-data")
+)
+```
+
+### Dynamic Shell Commands
+
+```python
+# Shell step with environment variables
+.step("backup-data", callback=lambda s:
+    s.description("Backup processed data")
+    .shell('tar -czf /tmp/backup-${BUILD_ID}.tar.gz ${processed_data}')
+    .env(BUILD_ID="$(date +%Y%m%d_%H%M%S)")
+    .output("backup_location")
+)
+```
+
+## Step Dependencies and Flow Control
+
+### Basic Dependencies
+
+```python
+# Sequential steps with dependencies
+.step("step1", callback=lambda s:
+    s.description("First step")
+    .shell("echo 'Step 1 complete'")
+    .output("step1_result")
+)
+.step("step2", callback=lambda s:
+    s.description("Second step depends on first")
+    .shell("echo 'Using result: ${step1_result}'")
+    .depends("step1")
+    .output("step2_result")
+)
+```
+
+### Complex Dependencies
+
+```python
+# Step depending on multiple previous steps
+.step("final-summary", callback=lambda s:
+    s.description("Generate final summary from all previous steps")
+    .shell("""
+echo "=== Final Summary ==="
+echo "Validation: ${validation_result}"
+echo "Processing: ${processing_result}"
+echo "Analysis: ${analysis_result}"
+echo "All steps completed successfully"
+    """)
+    .depends("validate-input", "process-data", "analyze-results")
+    .output("final_summary")
+)
+```
+
+## Real-World Examples
+
+### URL Validation Workflow
+
+```python
+def create_url_validation_workflow():
+    """Complete workflow demonstrating tool and shell step integration."""
+    
+    return (Workflow("url_validation_workflow")
+        .description("Validate URLs and check their connectivity")
+        .params(target_url="https://example.com")
+        
+        # Step 1: Validate URL format using custom tool
+        .step("validate_url", callback=lambda s:
+            s.description("Validate URL format using custom Python tool")
+            .tool(url_validator)
+            .args(url="${target_url}")
+            .output("validation_result")
+        )
+        
+        # Step 2: Echo validation completion
+        .step("echo_validation", callback=lambda s:
+            s.description("Echo validation completion message")
+            .shell('echo "URL validation completed for: ${target_url}"')
+        )
+        
+        # Step 3: Check network connectivity
+        .step("check_connectivity", callback=lambda s:
+            s.description("Check network connectivity using custom shell tool")
+            .tool(network_checker)
+            .args(target="${target_url}")
+            .output("connectivity_result")
+        )
+        
+        # Step 4: Generate comprehensive summary
+        .step("generate_summary", callback=lambda s:
+            s.description("Generate comprehensive analysis summary")
+            .shell("""
+echo "=== URL Analysis Summary ==="
+echo "Target URL: ${target_url}"
+echo "Validation: ${validation_result}"
+echo "Connectivity: ${connectivity_result}"
+echo "Analysis completed at: $(date)"
+            """)
+            .depends("validate_url", "check_connectivity")
+        )
+    )
+```
+
+### Text Processing Pipeline
+
+```python
+def create_text_processing_workflow():
+    """Multi-stage text processing with tool and shell integration."""
+    
+    return (Workflow("text_processing_workflow")
+        .description("Process and analyze text content through multiple stages")
+        .params(input_text="Hello world! This is sample text for analysis.")
+        
+        # Preparation step
+        .step("prepare_text", callback=lambda s:
+            s.description("Prepare text for analysis")
+            .shell('echo "Preparing text..." && echo "${input_text}" > /tmp/text_input.txt')
+            .output("prepared")
+        )
+        
+        # Analysis using custom tool
+        .step("analyze_text", callback=lambda s:
+            s.description("Analyze text using custom Python tool")
+            .tool(text_analyzer)
+            .args(text="${input_text}")
+            .output("analysis_result")
+            .depends("prepare_text")
+        )
+        
+        # Character counting with shell
+        .step("count_characters", callback=lambda s:
+            s.description("Count characters using shell")
+            .shell('echo "Character count: $(echo -n "${input_text}" | wc -c)"')
+            .output("char_count")
+            .depends("prepare_text")
+        )
+        
+        # Extract unique words
+        .step("extract_unique_words", callback=lambda s:
+            s.description("Extract unique words using shell")
+            .shell("""
+echo "${input_text}" | tr ' ' '\\n' | tr '[:upper:]' '[:lower:]' | sort | uniq | head -10
+            """)
+            .output("unique_words")
+            .depends("prepare_text")
+        )
+        
+        # Final report generation
+        .step("generate_report", callback=lambda s:
+            s.description("Generate final text processing report")
+            .shell("""
+echo "=== Text Processing Report ==="
+echo "Original text length: ${char_count}"
+echo ""
+echo "Analysis Results:"
+echo "${analysis_result}"
+echo ""
+echo "Top unique words:"
+echo "${unique_words}"
+echo ""
+echo "Report generated at: $(date)"
+            """)
+            .depends("analyze_text", "count_characters", "extract_unique_words")
+        )
+    )
+```
+
+## Advanced Step Features
+
+### Error Handling and Retries
+
+```python
+.step("resilient-operation", callback=lambda s:
+    s.description("Operation with built-in resilience")
+    .tool(network_checker)
+    .args(target="${api_endpoint}")
+    .retry(limit=3, interval_sec=10)
+    .continue_on(failure=True)
+    .timeout(60)
+    .output("operation_result")
+)
+```
+
+## Best Practices
+
+### 1. Step Naming
+
+```python
+# Good: Clear, descriptive names
+.step("validate-api-endpoint", callback=lambda s: ...)
+.step("process-user-data", callback=lambda s: ...)
+.step("generate-final-report", callback=lambda s: ...)
+
+# Avoid: Vague or abbreviated names
+.step("step1", callback=lambda s: ...)
+.step("proc", callback=lambda s: ...)
+```
+
+### 2. Description Guidelines
+
+```python
+# Good: Action-oriented, specific descriptions
+.step("validate-input", callback=lambda s:
+    s.description("Validate URL format and accessibility using custom tool")
+    .tool(url_validator)
+    # ...
+)
+
+# Avoid: Generic or missing descriptions
+.step("process", callback=lambda s:
+    s.description("Process data")  # Too vague
+    # ...
+)
+```
+
+### 3. Output Variable Naming
+
+```python
+# Good: Descriptive output names
+.output("validation_result")
+.output("processing_summary")
+.output("analysis_report")
+
+# Avoid: Generic names
+.output("result")
+.output("data")
+.output("output")
+```
+
+### 4. Dependency Management
+
+```python
+# Good: Clear dependency chains
+.step("prepare", callback=lambda s: ...)
+.step("process", callback=lambda s: 
+    s.depends("prepare")
+    # ...
+)
+.step("finalize", callback=lambda s:
+    s.depends("process")
+    # ...
+)
+
+# Consider: Explicit multi-dependencies
+.step("summary", callback=lambda s:
+    s.depends("validate", "process", "analyze")
+    # ...
+)
+```
+
+### 5. Error Handling
+
+```python
+# Include appropriate error handling
+.step("critical-operation", callback=lambda s:
+    s.description("Critical operation with error handling")
+    .tool(critical_tool)
+    .args(data="${input}")
+    .retry(limit=3, interval_sec=30)
+    .timeout(300)
+    .continue_on(failure=False)  # Fail workflow on error
+    .output("critical_result")
+)
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Missing Dependencies**: Ensure all step dependencies are correctly specified
+2. **Variable Scope**: Variables are available only after their producing step completes
+3. **Tool Registration**: Ensure custom tools are properly imported and available
+4. **Timeout Configuration**: Set appropriate timeouts for long-running operations
+
+### Debugging Steps
+
+```python
+# Add debug steps for troubleshooting
+.step("debug-variables", callback=lambda s:
+    s.description("Debug step to check variable values")
+    .shell("""
+echo "=== Debug Information ==="
+echo "Input URL: ${input_url}"
+echo "Validation Result: ${validation_result}"
+echo "Current directory: $(pwd)"
+echo "Environment: $(env | grep -E '^(PATH|HOME)=')"
+    """)
+    .depends("previous-step")
+)
+```
+
+## See Also
+
+- [Custom Tools](../workflows/custom_tools.py) - Tool implementations used in examples
+- [Workflow Examples](../workflows/workflows.py) - Complete workflow implementations
+- [Models Documentation](./models.mdx) - Model integration patterns
+- [Message Blocks](./message-blocks.mdx) - Message composition for notifications
+
+---
+
+The custom step patterns demonstrated in workflow-examples provide a powerful foundation for building complex, maintainable workflows that integrate seamlessly with the Kubiya platform.
