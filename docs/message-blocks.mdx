@@ -1,0 +1,94 @@
+---
+title: Message Blocks
+---
+
+# Message Blocks Documentation
+
+Message blocks are Pydantic models and are modular components used to construct rich, interactive messages for platforms like Slack.
+This library provides Python models for Slack Block Kit, enabling you to build, validate, and serialize message blocks programmatically.
+
+## Block Types
+
+Supported block types:
+- **Header**: Displays a header text.
+- **Section**: Main content block, supports text, fields, and accessories.
+- **Divider**: Visual separator.
+- **Actions**: Contains interactive elements (e.g., buttons).
+- **Context**: Displays context information (text/images).
+
+## Elements
+Elements are interactive or visual components inside blocks, such as buttons and images.
+
+### Button Element
+A clickable button for user actions.
+```python
+from message_blocks.blocks import ButtonElement, ButtonStyle, PlainTextObject
+
+button = ButtonElement(
+    text=PlainTextObject(text="Confirm"),
+    style=ButtonStyle.PRIMARY,
+    action_id="ack_btn"
+)
+```
+
+### Image Element
+Displays an image within a block.
+```python
+from message_blocks.blocks import ImageElement
+
+image = ImageElement(
+    image_url="https://example.com/image.png",
+    alt_text="Example image"
+)
+```
+
+## Attachments
+Attachments allow you to add extra context, formatting, or blocks to a message.
+```python
+from message_blocks.blocks import Attachment, SectionBlock, PlainTextObject
+
+attachment = Attachment(
+    color="good",
+    blocks=[
+        SectionBlock(text=PlainTextObject(text="Attachment block"))
+    ],
+    title="Incident Details",
+    text="More info about the incident."
+)
+```
+
+## Composing a Message
+Blocks and attachments can be combined to form a message:
+```python
+from message_blocks.blocks import Message, SectionBlock, PlainTextObject, Attachment
+
+msg = Message(
+    channel="alerts",
+    text="Incident notification",
+    blocks=[
+        SectionBlock(text=PlainTextObject(text="Incident detected!"))
+    ],
+    attachments=[
+        Attachment(
+            color="danger",
+            title="Urgent Incident",
+            text="Immediate action required."
+        )
+    ]
+)
+```
+
+## Serialization
+Messages and blocks can be serialized to native dict or JSON for API usage:
+```python
+msg_dict = msg.to_dict()
+```
+```python
+json_str = msg.to_json()
+```
+
+## Reference
+- [Slack Block Kit documentation](https://api.slack.com/block-kit)
+
+---
+For more details, see the [Messages](./messages.mdx) and [Models](./models.mdx) documentation.

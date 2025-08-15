@@ -1,0 +1,47 @@
+---
+title: Messages
+---
+
+# Messages Documentation
+
+Messages are high-level objects representing notifications or alerts, typically sent to a channel.
+They are composed of message blocks and can be customized for different use cases.
+
+## Message Interface
+Each message is a Pydantic model and should implement the `MessageModel` interface defined in `models/messages.py`.
+This interface enforces a `to_message()` method that returns a Slack-compatible `Message` object.
+
+### Example: Implementing a Message
+```python
+from models.messages import MessageModel
+from message_blocks.blocks import Message
+
+class MyCustomMessage(MessageModel):
+    ... # your fields here
+    def to_message(self) -> Message:
+        # return a Message instance
+        pass
+```
+
+## Example: Validation Failure Message
+This example shows how to create a message for validation failure notifications and return a Message object.:
+
+```python
+from models.messages import ValidationFailureMessage
+
+msg = ValidationFailureMessage(
+    incident_title="Database Down",
+    incident_id="INC123",
+    incident_severity="High",
+    channel="alerts"
+)
+slack_message = msg.to_message()
+```
+
+The `to_message()` method converts the model to a Slack-compatible message object.
+
+## Customization
+You can extend message models to fit your workflow, including custom fields and blocks.
+
+---
+See also: [Message Blocks](./message-blocks.mdx) and [Models](./models.mdx).
